@@ -3,8 +3,8 @@ import requests
 
 st.set_page_config(page_title="Bet Value Analyzer Auto", layout="centered")
 
-st.title("⚽ Auto Bet Analyzer")
-st.markdown("Análise automática de valor com dados em direto.")
+st.title("⚽ Auto Bet Analyzer (1X2 & Golos)")
+st.markdown("Análise automática de valor para 1X2 e Mais/Menos 2.5 Golos.")
 
 if "historico" not in st.session_state:
     st.session_state.historico = []
@@ -17,7 +17,6 @@ banca_total = st.sidebar.number_input("Banca Total (€):", min_value=1.0, value
 if not api_key_input:
     st.warning("⚠️ Insere a tua API Key na barra lateral para carregar os desportos.")
 else:
-    # Passo A: Buscar todos os desportos/ligas disponíveis na API automaticamente
     sports_url = "https://api.the-odds-api.com/v4/sports"
     sports_params = {"apiKey": api_key_input.strip()}
     
@@ -34,10 +33,7 @@ else:
     if sports_data is None:
         st.error("Erro ao validar a API Key. Verifica se foi copiada corretamente.")
     else:
-        # Filtrar apenas ligas de Futebol (Soccer)
         futebol_ligas = [s for s in sports_data if "soccer" in s['key']]
-        
-        # Criar dicionário com o nome bonito e a chave real da API
         opcoes_ligas = {s['title']: s['key'] for s in futebol_ligas}
         
         if not opcoes_ligas:
@@ -46,12 +42,12 @@ else:
             liga_nome = st.selectbox("Escolhe a Competição Disponível:", list(opcoes_ligas.keys()))
             liga_key = opcoes_ligas[liga_nome]
             
-            # Passo B: Carregar as odds da liga selecionada
+            # Pedido à API incluindo h2h (1X2) e totals (Golos)
             odds_url = f"https://api.the-odds-api.com/v4/sports/{liga_key}/odds/"
             odds_params = {
                 "apiKey": api_key_input.strip(),
                 "regions": "eu",
-                "markets": "h2h",
+                "markets": "h2h,totals", # Inclui 1X2 e Totais de Golos
                 "oddsFormat": "decimal",
             }
             
@@ -82,33 +78,49 @@ else:
                         
                     st.markdown(f"**🏠 {home} vs ✈️ {away}**")
                     
+                    # Variáveis para guardar as melhores odds de cada mercado
                     melhor_odd_home = 0
                     melhor_odd_away = 0
+                    melhor_odd_over25 = 0
+                    melhor_odd_under25 = 0
                     
                     for bookmaker in bookmakers:
                         for market in bookmaker.get('markets', []):
+                            # Mercado 1X2 (h2h)
                             if market['key'] == 'h2h':
                                 for outcome in market['outcomes']:
                                     if outcome['name'] == home and outcome['price'] > melhor_odd_home:
                                         melhor_odd_home = outcome['price']
                                     elif outcome['name'] == away and outcome['price'] > melhor_odd_away:
                                         melhor_odd_away = outcome['price']
+                            
+                            # Mercado de Golos (totals - linha de 2.5)
+                            elif market['key'] == 'totals':
+                                for outcome in market['outcomes']:
+                                    if outcome.get('point') == 2.5:
+                                        if outcome['name'] == 'Over' and outcome['price'] > melhor_odd_over25:
+                                            melhor_odd_over25 = outcome['price']
+                                        elif outcome['name'] == 'Under' and outcome['price'] > melhor_odd_under25:
+                                            melhor_odd_under25 = outcome['price']
                     
+                    # Mostrar as melhores odds encontradas no mercado para este jogo
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.text(f"Melhor Odd {home}: {melhor_odd_home}")
+                        st.text(f"1X2 - {home}: {melhor_odd_home if melhor_odd_home > 0 else '-'}")
+                        st.text(f"1X2 - {away}: {melhor_odd_away if melhor_odd_away > 0 else '-'}")
                     with col2:
-                        st.text(f"Melhor Odd {away}: {melhor_odd_away}")
+                        st.text(f"Mais de 2.5: {melhor_odd_over25 if melhor_odd_over25 > 0 else '-'}")
+                        st.text(f"Menos de 2.5: {melhor_odd_under25 if melhor_odd_under25 > 0 else '-'}")
                     
-                    # Simulação de EV para teste
-                    if melhor_odd_home > 2.00:
-                        st.success(f"✅ Oportunidade detetada em {home} (@{melhor_odd_home})")
+                    # Simulação de oportunidade de valor para teste automático
+                    if melhor_odd_over25 > 1.90:
+                        st.success(f"🔥 Oportunidade detetada: Mais de 2.5 Golos (@{melhor_odd_over25})")
                         stake = banca_total * 0.02
-                        if st.button(f"Registar: {home}", key=f"btn_{jogo['id']}"):
+                        if st.button(f"Registar: {home} vs {away} (Over 2.5)", key=f"btn_over_{jogo['id']}"):
                             st.session_state.historico.append({
                                 "jogo": f"{home} vs {away}",
-                                "mercado": f"Vitória {home}",
-                                "odd": melhor_odd_home,
+                                "mercado": "Mais de 2.5 Golos",
+                                "odd": melhor_odd_over25,
                                 "investido": round(stake, 2)
                             })
                             st.toast("Aposta registada!", icon="🎯")
